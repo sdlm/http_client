@@ -1,9 +1,18 @@
 #!/usr/bin/python3
 
+import sys
 import http.client
 import codecs
 import json
 from pprint import pprint
+from helpers import Timer, Measure
+
+
+SERVERS = {
+    'lh': 'http://172.18.0.5/',
+    'dev': 'http://dev.idwell.ru/',
+    'demo': 'http://demo.idwell.ru/',
+}
 
 
 class HTTPClient(object):
@@ -28,7 +37,7 @@ curl 'http://dev.idwell.ru/api/system/init/'
         self.pre = pre.strip('/')
         self.verbose = verbose
 
-    def get(self, api, **kwargs):
+    def get(self, api, print_response=False, print_full=False, print_meta=False, **kwargs):
         _method = 'GET'
         _api = api.strip('/')
         _args = ['{}={}'.format(k,v) for k, v in kwargs.items()]
@@ -42,26 +51,57 @@ curl 'http://dev.idwell.ru/api/system/init/'
         }
 
         _fullapi = '/{}/{}/'.format(self.pre, _api)
-        _api_with_args = '{}?{}'.format(_fullapi, '&'.join(_args))
-        print('{}: {}'.format(_method, _api_with_args))
+        _api_with_args = _fullapi
+        if len(_args) > 0:
+            _api_with_args = '{}?{}'.format(_fullapi, '&'.join(_args))
+        if print_full or print_meta or print_response:
+            print('{}: {}'.format(_method, _api_with_args))
         conn.request(_method, _api_with_args, headers=headers)
-        r1 = conn.getresponse()
+        resp = None
+        with Timer() as t:
+            resp = conn.getresponse()
 
         if self.verbose:
-            print(r1.status, r1.reason)
+            print(resp.status, resp.reason)
 
-        data = r1.read()
+        data = resp.read()
         response_str = codecs.decode(data)
-        return json.loads(response_str)
+        result = {
+            'data': json.loads(response_str),
+            'meta': {
+                'elapsed': t.msecs
+            }
+        }
+        if print_response or print_full:
+            pprint(result['data'])
+        if print_meta or print_full:
+            print('elapsed: {:.0f}'.format(result['meta']['elapsed']))
+
+        return result
 
 
 if __name__ == '__main__':
-    cli = HTTPClient('http://dev.idwell.ru/', pre='/api/')
 
-    # response = cli.get('/system/init/')
-    # pprint(response)
+    server = 'lh'
 
-    response = cli.get('/profile/', count=1)
-    pprint(response)
+    try:
+        _server = sys.argv[1]
+        assert _server in SERVERS
+        server = _server
+    except:
+        pass
 
+    _port = None
+    if server == 'lh':
+        _port = 8000
 
+    cli = HTTPClient(SERVERS[server], port=_port, pre='/api/')
+
+    measure = Measure()
+
+    for i in range(10):
+        # response = cli.get('/system/init/', print_full=False)
+        response = cli.get('/profile/', count=1, print_full=False)
+        measure.append(response['meta']['elapsed'])
+
+    print(measure)
